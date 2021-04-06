@@ -63,4 +63,4 @@ Content is for demo purposes.
 
 Simon Kissing - [@realtimesimon](https://twitter.com/realtimesimon) - kissingsimon@gmail.com
 
-Project Link: [https://github.com/SimonsaysNL/Pinball-Physics-Threejs/](https://github.com/SimonsaysNL/Pinball-Physics-Threejs/)
+Project Link: [https://github.com/SimonsaysNL/Pinball-Physics-Threejs/](https://github.com/SimonsaysNL/Pinball-Dot-Matix-Display/)
