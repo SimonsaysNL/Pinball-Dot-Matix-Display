@@ -38,6 +38,12 @@
 
 Realtime Pinball Dot Matrix Display created in Three.js
 
+I wanted to re-create that 90's pinball display feeling with realtime animation.
+Display size is 128x32 dots, 4 shades of orange, black outline around graphics.
+
+Cubes are randomised so might clip sometimes.
+
+Content is for demo purposes.
 
 ### Built With
 
@@ -48,6 +54,7 @@ Realtime Pinball Dot Matrix Display created in Three.js
 
 * Animations on event
 * Animationtext also dynamic
+* replacing textgeometry with a beter performing way of placing and updating text.
 
 
 <!-- CONTACT -->
