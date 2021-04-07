@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Pinball Realtime Dot Matrix Display</title>
+	<meta charset="utf-8">
+    <link type="text/css" rel="stylesheet" href="main.css">
+	<style>
+		body {
+			background-color: #000;
+			margin: 0px;
+			overflow: hidden;
+		}
+
+		#info {
+			color: #fff;
+		}
+
+		a{
+			color: #fff;
+		}
+
+		</style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.5.1/gsap.min.js"></script>
+
+	<div id="info">Pinball Realtime Dot Matrix Display</div>
+	<div id="container"></div>
+
+	<script src="../build/three.min.js"></script>
+	<script src='js/libs/dat.gui.min.js'></script>
+	<script src="js/libs/stats.min.js"></script>
+    <script src="js/controls/OrbitControls.js"></script>
+	<script src="js/postprocessing/EffectComposer.js"></script>
+	<script src="js/postprocessing/RenderPass.js"></script>
+	<script src="js/postprocessing/ShaderPass.js"></script>
+
+	<script src="js/postprocessing/MaskPass.js"></script>
+	<script src="js/shaders/CopyShader.js"></script>
+	<script src="js/shaders/VerticalBlurShader.js"></script>
+	<script src="js/shaders/HorizontalBlurShader.js"></script>
+
+	<script src="DotMatrixShader.js"></script>
+    <script src="AdditiveBlendShader.js"></script>
+
+	<script>
+        let camera, scene, renderer, composer;
+
+        let dotMatrixPass, dotMatrixParams, hblurPass, vblurPass, blendPass;
+
+        let screenW, screenH;
+
+        let bufferScene;
+        let bufferTexture;
+
+        const rtWidth = 128;
+        const rtHeight = 32;
+
+        const renderTarget = new THREE.WebGLRenderTarget(rtWidth, rtHeight);
+        
+        let manager;
+        
+        let cubeHolder, sphere, font, textmesh, textMesh1, plcreditmesh, pltextmesh, textGeo, textMaterial, fiveTone, outlineMesh1, outlineMesh3;
+        
+        let group = {};
+        
+        let firstLetter = true;
+        
+        let scoreval = 0;
+        let scoretext = "117,333";
+        
+        let ballval = 1;
+        let balltext = "BALL " + ballval
+        
+        let creditval = 0;
+        let credittext = "CREDITS " + creditval
+        
+        let bevelEnabled = true;
+        
+        let tl;
+        
+        let updatescore = true;
+        
+        let loaded = {};
+                
+        const textParams = {
+            scoreText : {
+                text: scoretext,
+                positionx: 0,
+                positiony: -130,
+                hover: 30,
+                size: 150,
+                height: 5,
+                curveSegments: 12,
+                bevelEnabled:  false,
+                bevelThickness: 10,
+                bevelSize: 8,
+                bevelOffset: 0,
+                bevelSegments: 5,
+                center: true
+            },
+            ballText : {
+                text: balltext,
+                positionx: 450,
+                positiony: 104,
+                hover: 30,
+                size: 50,
+                height: 5,
+                curveSegments: 12,
+                bevelEnabled:  false,
+                bevelThickness: 10,
+                bevelSize: 8,
+                bevelOffset: 0,
+                bevelSegments: 5,
+                center: false
+            },
+            creditText : {
+                text: credittext,
+                positionx: -675,
+                positiony: 103,
+                hover: 30,
+                size: 57,
+                height: 5,
+                curveSegments: 12,
+                bevelEnabled:  false,
+                bevelThickness: 10,
+                bevelSize: 8,
+                bevelOffset: 0,
+                bevelSegments: 5,
+                center: false
+            }
+        }
+        
+        init();
+        composerInit();
+        createMeshes();
+        addLights();
+        managerInit();
+        loadFont();
+        animate();
+
+        function init() {
+
+            screenW = 1920;
+            screenH = 480;
+
+            //init three scene
+            camera = new THREE.PerspectiveCamera(20, rtWidth / rtHeight, 20, 3000);
+            camera.position.z = 1000;
+            isocamera = new THREE.OrthographicCamera(20, rtWidth / rtHeight, 20, 3000);
+            isocamera.position.z = 50;
+            camera.position.z = 1000;
+            cameramain = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 20, 3000);
+            cameramain.position.z = 100;
+            scene = new THREE.Scene();
+            
+            uiScene = new THREE.Scene();
+            bufferScene = new THREE.Scene();
+            //bufferScene.background = new THREE.Color(0xff9900);
+            //Create the texture that will store our result
+            bufferTexture = new THREE.WebGLRenderTarget( 1920, 480, { minFilter: THREE.LinearFilter, magFilter: THREE.NearestFilter});
+
+            //init object to hold cubes and rotate
+            cubeHolder = new THREE.Object3D();
+            bufferScene.add(cubeHolder);
+            
+            const textureLoader = new THREE.TextureLoader();
+            fiveTone = textureLoader.load( 'textures/gradientMaps/fiveTone.jpg' );
+            fiveTone.minFilter = THREE.NearestFilter;
+            fiveTone.magFilter = THREE.NearestFilter;
+
+            //init renderer
+            renderer = new THREE.WebGLRenderer({
+                alpha: true
+            });
+            renderer.setClearColor( 0xff9900, 0 ); // the default
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            document.body.appendChild( renderer.domElement );
+            
+            const controls = new THREE.OrbitControls( cameramain, renderer.domElement );
+
+            //add stats
+            stats = new Stats();
+            stats.domElement.style.position = 'absolute';
+            stats.domElement.style.top = '0px';
+            container.appendChild( stats.domElement );
+        }
+        
+        // POST PROCESSING
+        function composerInit(){
+            //common render target params
+            const renderTargetParameters = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat, stencilBufer: false };
+
+            //Init dotsComposer to render the dots effect
+            //A composer is a stack of shader passes combined
+
+            //a render target is an offscreen buffer to save a composer output
+            renderTargetDots = new THREE.WebGLRenderTarget( screenW, screenH, renderTargetParameters );
+            //dots Composer renders the dot effect
+            dotsComposer = new THREE.EffectComposer( renderer,renderTargetDots );
+
+            const renderPass = new THREE.RenderPass( bufferScene, camera );
+            const UIrenderPass = new THREE.RenderPass( uiScene, camera );
+            //UIrenderPass.clearColor = new THREE.Color( 0, 0, 0 );
+	        UIrenderPass.clearAlpha = 0;
+            
+            //create shader passes
+            hblurPass = new THREE.ShaderPass( THREE.HorizontalBlurShader );
+            vblurPass = new THREE.ShaderPass( THREE.VerticalBlurShader );
+            
+            //a shader pass applies a shader effect to a texture (usually the previous shader output)
+            dotMatrixPass = new THREE.ShaderPass( THREE.DotMatrixShader );
+            dotsComposer.addPass( renderPass );
+            //dotsComposer.addPass( UIrenderPass );
+            dotsComposer.addPass( dotMatrixPass );
+            dotsComposer.addPass(hblurPass);
+
+            dotsComposer.renderToScreen = false;
+            
+            renderTargetUI = new THREE.WebGLRenderTarget( screenW, screenH, renderTargetParameters );
+            UIComposer = new THREE.EffectComposer( renderer, renderTargetUI );
+            
+            UIComposer.addPass( UIrenderPass );
+            UIComposer.addPass( dotMatrixPass );
+
+            UIComposer.renderToScreen = false;
+            
+            //blend Composer runs the AdditiveBlendShader to combine the output of dotsComposer and glowComposer
+            blendPass = new THREE.ShaderPass( THREE.AdditiveBlendShader );
+            blendPass.uniforms[ 'tBase' ].value = dotsComposer.renderTarget1.texture;
+            blendPass.uniforms[ 'tAdd' ].value = UIComposer.renderTarget1.texture;
+            blendComposer = new THREE.EffectComposer( renderer );
+            blendComposer.addPass( blendPass );
+            blendPass.renderToScreen = false;
+            blendComposer.renderToScreen = false;
+
+            //////////////
+            dotMatrixParams = {
+                spacing: 15.0,
+                size: 2.0,
+                blur: 3.0
+            }
+
+            glowParams = {
+                amount: 4.0,
+                blur: 0.4
+            }
+
+            dotMatrixPass.uniforms[ "spacing" ].value = dotMatrixParams.spacing;
+            dotMatrixPass.uniforms[ "size" ].value = Math.pow(dotMatrixParams.size,2);
+            dotMatrixPass.uniforms[ "blur" ].value = Math.pow(dotMatrixParams.blur*2,2);
+
+            hblurPass.uniforms[ 'h' ].value = glowParams.blur / screenW*2;
+            vblurPass.uniforms[ 'v' ].value = glowParams.blur  / screenH*2;
+
+            dotMatrixPass.uniforms[ "resolution" ].value = new THREE.Vector2(1920,480);
+        }
+        
+        function createMeshes() {
+            //create rotating cubes
+            const geometry = new THREE.CubeGeometry(100, 100, 100);
+            const material = new THREE.MeshToonMaterial({
+                color:0xff9900, //FF8C00,
+                gradientMap: fiveTone,
+                depthTest: true,
+                transparent: true
+            });
+            const spread = 2000;
+            for(let j = 0; j < 20; j++) {
+                const cube = new THREE.Mesh(geometry, material);
+                //randomize size, posn + rotation
+                cube.scale.x = cube.scale.y = cube.scale.z = Math.random() * 3 + .05;
+                cube.position.x = Math.random() * spread - spread / 2;
+                cube.position.y = Math.random() * spread - spread / 2;
+                cube.position.z = Math.random() * spread - spread / 2;
+                cube.rotation.x = Math.random() * 2 * Math.PI - Math.PI;
+                cube.rotation.y = Math.random() * 2 * Math.PI - Math.PI;
+                cube.rotation.z = Math.random() * 2 * Math.PI - Math.PI;
+                cubeHolder.add(cube);
+
+                const outlineMaterial2 = new THREE.MeshBasicMaterial( { color: 0x000000, side: THREE.BackSide } );
+                const outlineMesh2 = new THREE.Mesh( geometry, outlineMaterial2 );
+                outlineMesh2.position.x = cube.position.x;
+                outlineMesh2.position.y = cube.position.y;
+                outlineMesh2.position.z = cube.position.z;
+                outlineMesh2.rotation.x = cube.rotation.x;
+                outlineMesh2.rotation.y = cube.rotation.y;
+                outlineMesh2.rotation.z = cube.rotation.z;
+                outlineMesh2.scale.x = cube.scale.x*1.05;
+                outlineMesh2.scale.y = cube.scale.y*1.05;
+                outlineMesh2.scale.z = cube.scale.z*1.05;
+                cubeHolder.add(outlineMesh2);
+            }
+
+            const spheregeometry = new THREE.SphereGeometry( 128, 128, 128 );
+            const spherematerial = new THREE.MeshToonMaterial({
+                color:0xff9900,
+                gradientMap: fiveTone,
+                depthTest: false,
+                transparent: true
+            });
+            sphere = new THREE.Mesh( spheregeometry, spherematerial );
+            bufferScene.add( sphere );
+
+            const outlineMaterial1 = new THREE.MeshBasicMaterial( { color: 0x000000, side: THREE.BackSide } );
+            outlineMesh1 = new THREE.Mesh( spheregeometry, outlineMaterial1 );
+            outlineMesh1.position = sphere.position;
+            outlineMesh1.scale.multiplyScalar(1.07);
+            bufferScene.add( outlineMesh1 );
+            
+            const boxgeometry = new THREE.CubeGeometry(80, 70, 10);
+            const boxmaterial = new THREE.MeshLambertMaterial({color: 0xffffff});
+            const boxMesh = new THREE.Mesh(boxgeometry, boxmaterial);
+            boxMesh.position.z = -5.1;
+            scene.add(boxMesh);
+            
+            const cgeometry = new THREE.CircleGeometry( 5, 32 );
+            const cmaterial = new THREE.MeshBasicMaterial( { color: 0x000000 } );
+            const circle = new THREE.Mesh( cgeometry, cmaterial );
+            scene.add( circle );
+            circle.position.x = -30;
+            circle.position.y = -20;
+            
+            const circle2 = new THREE.Mesh( cgeometry, cmaterial );
+            scene.add( circle2 );
+            circle2.position.x = 30;
+            circle2.position.y = -20;
+            
+            const boxMaterial = new THREE.MeshBasicMaterial({map:blendComposer.renderTarget1.texture});
+            const boxGeometry2 = new THREE.PlaneGeometry( 40, 10, 1 );
+            const mainBoxObject = new THREE.Mesh(boxGeometry2,boxMaterial);
+            scene.add(mainBoxObject);
+            mainBoxObject.position.y = -20;
+        }
+        
+        function addLights(){
+            const light = new THREE.AmbientLight( 0x404040, 0.4 ); // soft white light
+            bufferScene.add( light );
+            
+            const uiLight = new THREE.AmbientLight( 0x404040, 5 ); // soft white light
+            uiScene.add( uiLight );
+            
+            const scenelight = new THREE.AmbientLight( 0x404040, 1 ); // soft white light
+            scene.add( scenelight );
+
+            const directionalLight = new THREE.DirectionalLight( 0xffffff, 2 );
+            bufferScene.add( directionalLight );
+        }
+        
+        function managerInit() {
+            manager = new THREE.LoadingManager();
+            manager.onStart = function ( url, itemsLoaded, itemsTotal ) {
+                console.log( 'Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+            };
+
+            manager.onLoad = function ( ) {
+                console.log( 'Loading complete!');
+                initText();
+                tlCreate();
+            };
+
+            manager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
+                console.log( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+            };
+
+            manager.onError = function ( url ) {
+                console.log( 'There was an error loading ' + url );
+            };
+        }
+        
+        function tlCreate() {
+            balltl = gsap.timeline({ paused:true});
+            balltl.from(sphere.position, {y: 1000, duration: 2.5, ease: "bounce.out"},0);
+            balltl.from(outlineMesh1.position, {y: 1000, duration: 2.5, ease: "bounce.out"},0);
+            balltl.to(sphere.position, {y: -600, duration: 2.5, ease: "bounce.out"},4);
+            balltl.to(outlineMesh1.position, {y: -600, duration: 2.5, ease: "bounce.out"},4);
+
+            tl = gsap.timeline({repeat: -1, repeatDelay: 4, delay: 4});
+            tl.add(balltl.play(),0);
+
+            tl.to(group.scoreText.position, {y: -400, duration: 1}, 0.50);
+            tl.add(updatePause,1.50);
+            tl.to(group.creditText.position, {y: 300, duration: 1}, 0.5);
+            tl.to(group.ballText.position, {y: 300, duration: 1}, 0.5);
+            tl.from(cubeHolder.position, {z: 2000, duration: 1}, 1.5);
+            tl.from(textmesh.position, {y: 300, duration: 1}, 4);
+
+            tl.from(outlineMesh3.position, {y: 300, duration: 1}, 4);
+            tl.to(textmesh.position, {z: 10, duration: 1, yoyo: true, repeat: 4}, 5);
+            tl.to(outlineMesh3.position, {z: 10, duration: 1, yoyo: true, repeat: 4}, 5);
+            tl.to(textmesh.position, {y: -600, duration: 1}, 10);
+            tl.to(outlineMesh3.position, {y: -600, duration: 1}, 10);
+            tl.to(cubeHolder.position, {z: 2000, duration: 1}, 10);
+            tl.set(group.scoreText.position, {y: -130}, 10.5);
+            tl.add(updateStart,10.5);
+            tl.set(group.creditText.position, {y: 104}, 10.5);
+            tl.set(group.ballText.position, {y: 103}, 10.5);
+        }
+        
+        function updatePause(){
+            updatescore = false;
+        }
+        
+        function updateStart(){
+            updatescore = true;
+        }
+        
+        function numberWithCommas(x) {
+            return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+        
+        function loadFont() {
+            const loader = new THREE.FontLoader(manager);
+            loader.load( 'fonts/helvetiker_bold.typeface.json', function ( response ) {
+                font = response;
+            } );
+        }
+        
+        function initText() {
+            textMaterial = new THREE.MeshToonMaterial({
+                color:0xff9900, //FF8C00,
+                gradientMap: fiveTone,
+                depthTest: false,
+                transparent: true
+            });
+            
+            Object.keys(textParams).forEach(key => { 
+                //console.log("key: "+key);
+                const list = textParams[key];
+                loaded[key] = new createText(list, key);
+            });
+            
+             const textGeometry = new THREE.TextGeometry( 'HIGHSCORE', {
+                font: font,
+                size: 150,
+                height: 5,
+                curveSegments: 12,
+                bevelEnabled: true,
+                bevelThickness: 8,
+                bevelSize: 8,
+                bevelOffset: 0,
+                bevelSegments: 5
+            } );
+
+            textmesh = new THREE.Mesh( textGeometry, textMaterial );
+            textmesh.position.x = -605;
+            textmesh.position.y = -75;
+            textmesh.position.z = 100;
+            bufferScene.add( textmesh );
+
+                
+            const outlineMaterial3 = new THREE.MeshBasicMaterial( { color: 0x000000, side: THREE.BackSide } );
+            outlineMesh3 = new THREE.Mesh( textGeometry, outlineMaterial3 );
+
+            outlineMesh3.position.x = textmesh.position.x;
+            outlineMesh3.position.z = textmesh.position.z;
+            outlineMesh3.position.y = textmesh.position.y;
+            outlineMesh3.rotation.x = textmesh.rotation.x;
+            outlineMesh3.rotation.z = textmesh.rotation.z;
+            outlineMesh3.rotation.y = textmesh.rotation.y;
+            outlineMesh3.scale.multiplyScalar(1.05);
+            bufferScene.add( outlineMesh3 );
+        }
+        
+        function createText(params, key) {
+                //console.log(params);
+				this.textGeo = new THREE.TextGeometry( params.text, {
+					font: font,
+					size: params.size,
+					height: params.height,
+					curveSegments: params.curveSegments,
+					bevelThickness: params.bevelThickness,
+					bevelSize: params.bevelSize,
+					bevelEnabled: params.bevelEnabled
+				} );
+
+				this.textGeo.computeBoundingBox();
+
+				const centerOffset = - 0.5 * ( this.textGeo.boundingBox.max.x - this.textGeo.boundingBox.min.x );
+
+				this.textMesh = new THREE.Mesh( this.textGeo, textMaterial );
+
+                if (params.center){
+                    this.textMesh.position.x = centerOffset;
+                    this.textMesh.position.y = params.hover;
+                    this.textMesh.position.z = 0;
+                }
+
+				this.textMesh.rotation.x = 0;
+				this.textMesh.rotation.y = Math.PI * 2;
+            
+                if (!group[key]){
+                    group[key] = new THREE.Group();
+                    group[key].position.y = params.positiony;
+                    group[key].position.x = params.positionx;
+                    uiScene.add( group[key] );
+                }
+
+                group[key].add( this.textMesh );
+
+			}
+        
+        function refreshText(key, textMesh) {
+				group[key].remove( textMesh );
+				if ( ! textParams[key].text ) return;
+				loaded[key] = new createText(textParams[key], key);
+        }
+
+
+        function animate() {
+            
+            //temp to increment score for demo
+            if(font){
+                if (Math.floor(Math.random() * 100) == 1) {
+                    scoreval += Math.floor(Math.random() * 300);
+                    textParams["scoreText"].text = numberWithCommas(scoreval);
+                    if (updatescore){
+                        //console.log("update");
+                        refreshText("scoreText",loaded["scoreText"].textMesh);
+                    }
+                }
+            }
+            
+            //settimeout for fps control
+//            setTimeout( function() {
+
+                requestAnimationFrame( animate );
+
+//            }, 1000 / 1 );
+            
+            
+            
+            cubeHolder.rotation.y -= 0.01;
+            cubeHolder.rotation.x += 0.005;
+
+            dotsComposer.render(0.1);
+            UIComposer.render(0.1);
+            blendComposer.render(0.1);
+
+            renderer.setRenderTarget(null); 
+            
+            renderer.render( scene, cameramain );
+
+            stats.update();
+        }
+
+    </script>
+</body>
+</html>
